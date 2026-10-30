@@ -4,9 +4,11 @@ package com.example.food_recipe_backend.config;
 import com.example.food_recipe_backend.security.JwtAuthenticationFilter;
 import jakarta.servlet.DispatcherType;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -14,6 +16,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
@@ -22,6 +25,9 @@ import java.util.List;
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
+
+    @Value("${app.frontend.url:https://food-recipe-hub1.vercel.app}")
+    private String frontendUrl;
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -33,15 +39,20 @@ public class SecurityConfig {
 
         CorsConfiguration config = new CorsConfiguration();
 
+        // Allow local development and deployed frontend
         config.setAllowedOrigins(List.of(
             "http://localhost:5173",
             "http://localhost:5174",
-            "https://food-recipe-hub1.vercel.app/"
+            frontendUrl.replaceAll("/+$", "")
         ));
 
         config.setAllowedMethods(List.of(
-            "GET", "POST", "PUT", "PATCH",
-            "DELETE", "OPTIONS"
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+            "OPTIONS"
         ));
 
         config.setAllowedHeaders(List.of(
@@ -62,8 +73,8 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
-            JwtAuthenticationFilter jwtFilter)
-            throws Exception {
+            JwtAuthenticationFilter jwtFilter
+    ) throws Exception {
 
         http
             .csrf(csrf -> csrf.disable())
@@ -78,25 +89,25 @@ public class SecurityConfig {
 
             .authorizeHttpRequests(auth -> auth
 
-                // Permit error dispatches so original
-                // backend errors remain visible
+                // Allow error dispatches
                 .dispatcherTypeMatchers(
                     DispatcherType.ERROR
                 ).permitAll()
 
-                // CORS preflight
+                // Allow CORS preflight requests
                 .requestMatchers(
-                    HttpMethod.OPTIONS, "/**"
+                    HttpMethod.OPTIONS,
+                    "/**"
                 ).permitAll()
 
-                // Registration and login
+                // Public registration and login
                 .requestMatchers(
                     HttpMethod.POST,
                     "/api/users/register",
                     "/api/users/login"
                 ).permitAll()
 
-                // Public Razorpay donation endpoints
+                // Public donation endpoints
                 .requestMatchers(
                     HttpMethod.POST,
                     "/api/donations/create-order",
@@ -110,7 +121,7 @@ public class SecurityConfig {
                     "/api/recipes/**"
                 ).permitAll()
 
-                // All remaining endpoints require JWT
+                // All other endpoints require JWT
                 .anyRequest().authenticated()
             )
 
