@@ -39,33 +39,47 @@ public class SecurityConfig {
 
         CorsConfiguration config = new CorsConfiguration();
 
-        // Allow local development and deployed frontend
+        // Exact allowed frontend URLs
+        String productionFrontend =
+                frontendUrl.trim().replaceAll("/+$", "");
+
         config.setAllowedOrigins(List.of(
-            "http://localhost:5173",
-            "http://localhost:5174",
-            frontendUrl.replaceAll("/+$", "")
+                "http://localhost:5173",
+                "http://localhost:5174",
+                "https://food-recipe-hub1.vercel.app",
+                productionFrontend
         ));
+
+        // Allow preview deployments of this Vercel project
         config.setAllowedOriginPatterns(List.of(
-    "https://food-recipe-hub1-*.vercel.app"
-));
+                "https://food-recipe-hub1-*.vercel.app"
+        ));
+
         config.setAllowedMethods(List.of(
-            "GET",
-            "POST",
-            "PUT",
-            "PATCH",
-            "DELETE",
-            "OPTIONS"
+                "GET",
+                "POST",
+                "PUT",
+                "PATCH",
+                "DELETE",
+                "OPTIONS"
         ));
 
         config.setAllowedHeaders(List.of(
-            "Authorization",
-            "Content-Type"
+                "Authorization",
+                "Content-Type",
+                "Accept"
+        ));
+
+        config.setExposedHeaders(List.of(
+                "Authorization"
         ));
 
         config.setAllowCredentials(true);
 
+        config.setMaxAge(3600L);
+
         UrlBasedCorsConfigurationSource source =
-            new UrlBasedCorsConfigurationSource();
+                new UrlBasedCorsConfigurationSource();
 
         source.registerCorsConfiguration("/**", config);
 
@@ -81,55 +95,57 @@ public class SecurityConfig {
         http
             .csrf(csrf -> csrf.disable())
 
-            .cors(cors -> {})
+            .cors(cors -> cors.configurationSource(
+                    corsConfigurationSource()
+            ))
 
             .sessionManagement(session ->
-                session.sessionCreationPolicy(
-                    SessionCreationPolicy.STATELESS
-                )
+                    session.sessionCreationPolicy(
+                            SessionCreationPolicy.STATELESS
+                    )
             )
 
             .authorizeHttpRequests(auth -> auth
 
                 // Allow error dispatches
                 .dispatcherTypeMatchers(
-                    DispatcherType.ERROR
+                        DispatcherType.ERROR
                 ).permitAll()
 
                 // Allow CORS preflight requests
                 .requestMatchers(
-                    HttpMethod.OPTIONS,
-                    "/**"
+                        HttpMethod.OPTIONS,
+                        "/**"
                 ).permitAll()
 
                 // Public registration and login
                 .requestMatchers(
-                    HttpMethod.POST,
-                    "/api/users/register",
-                    "/api/users/login"
+                        HttpMethod.POST,
+                        "/api/users/register",
+                        "/api/users/login"
                 ).permitAll()
 
                 // Public donation endpoints
                 .requestMatchers(
-                    HttpMethod.POST,
-                    "/api/donations/create-order",
-                    "/api/donations/verify"
+                        HttpMethod.POST,
+                        "/api/donations/create-order",
+                        "/api/donations/verify"
                 ).permitAll()
 
                 // Public recipe browsing
                 .requestMatchers(
-                    HttpMethod.GET,
-                    "/api/recipes",
-                    "/api/recipes/**"
+                        HttpMethod.GET,
+                        "/api/recipes",
+                        "/api/recipes/**"
                 ).permitAll()
 
-                // All other endpoints require JWT
+                // All other endpoints require authentication
                 .anyRequest().authenticated()
             )
 
             .addFilterBefore(
-                jwtFilter,
-                UsernamePasswordAuthenticationFilter.class
+                    jwtFilter,
+                    UsernamePasswordAuthenticationFilter.class
             );
 
         return http.build();
