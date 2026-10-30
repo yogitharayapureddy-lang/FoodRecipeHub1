@@ -36,7 +36,7 @@ public class SecurityConfig {
         config.setAllowedOrigins(List.of(
             "http://localhost:5173",
             "http://localhost:5174",
-            "https://recipehub-placeholder.vercel.app"
+            "https://food-recipe-hub1.vercel.app/"
         ));
 
         config.setAllowedMethods(List.of(
