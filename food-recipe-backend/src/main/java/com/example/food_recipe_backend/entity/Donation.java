@@ -28,15 +28,15 @@ public class Donation {
     private String status = "CREATED";
 
     @Column(nullable = false, updatable = false)
-    private LocalDateTime createdAt =
-        LocalDateTime.now();
+    private LocalDateTime createdAt = LocalDateTime.now();
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "recipe_id")
     private Recipe recipe;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "recipient_user_id")
+    // Optional: platform donations may have no recipe creator
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "recipient_user_id", nullable = true)
     private User recipientUser;
 
     public Long getId() {
@@ -67,8 +67,7 @@ public class Donation {
         return razorpayOrderId;
     }
 
-    public void setRazorpayOrderId(
-            String razorpayOrderId) {
+    public void setRazorpayOrderId(String razorpayOrderId) {
         this.razorpayOrderId = razorpayOrderId;
     }
 
@@ -76,8 +75,7 @@ public class Donation {
         return razorpayPaymentId;
     }
 
-    public void setRazorpayPaymentId(
-            String razorpayPaymentId) {
+    public void setRazorpayPaymentId(String razorpayPaymentId) {
         this.razorpayPaymentId = razorpayPaymentId;
     }
 
@@ -93,8 +91,7 @@ public class Donation {
         return createdAt;
     }
 
-    public void setCreatedAt(
-            LocalDateTime createdAt) {
+    public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
     }
 

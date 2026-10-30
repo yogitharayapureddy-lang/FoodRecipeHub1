@@ -9,9 +9,13 @@ import com.example.food_recipe_backend.entity.User;
 import com.example.food_recipe_backend.repository.DonationRepository;
 import com.example.food_recipe_backend.repository.RecipeRepository;
 
-import com.razorpay.*;
-import org.json.JSONObject;
+import com.razorpay.Order;
+import com.razorpay.Payment;
+import com.razorpay.RazorpayClient;
+import com.razorpay.RazorpayException;
+import com.razorpay.Utils;
 
+import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -50,14 +54,13 @@ public class DonationService {
 
         System.out.println("========== DONATION SERVICE ==========");
 
+        // STEP 1: Validate donation details
         if (request == null ||
-                request.amount() == null ||
                 request.recipeId() == null ||
+                request.amount() == null ||
                 request.donorName() == null ||
                 request.donorName().isBlank() ||
-                request.donorName().length() > 100) {
-
-            System.err.println("DONATION ERROR: Invalid donation details");
+                request.donorName().trim().length() > 100) {
 
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
@@ -67,14 +70,9 @@ public class DonationService {
 
         BigDecimal amount = request.amount();
 
-        System.out.println("Recipe ID: " + request.recipeId());
-        System.out.println("Donation amount: " + amount);
-
         if (amount.compareTo(new BigDecimal("10")) < 0 ||
                 amount.compareTo(new BigDecimal("10000")) > 0 ||
                 amount.stripTrailingZeros().scale() > 2) {
-
-            System.err.println("DONATION ERROR: Invalid amount");
 
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
@@ -82,93 +80,62 @@ public class DonationService {
             );
         }
 
-        // STEP 1: Find recipe
+        // STEP 2: Find recipe
         Recipe recipe = recipeRepository
                 .findById(request.recipeId())
-                .orElseThrow(() -> {
-                    System.err.println("DONATION ERROR: Recipe not found");
-
-                    return new ResponseStatusException(
-                            HttpStatus.NOT_FOUND,
-                            "Recipe not found"
-                    );
-                });
+                .orElseThrow(() ->
+                        new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "Recipe not found"
+                        )
+                );
 
         System.out.println("Recipe found: " + recipe.getName());
 
-        // STEP 2: Find recipe creator
+        // STEP 3: Creator is optional
         User creator = recipe.getUser();
 
         if (creator == null) {
-
-            System.err.println(
-                    "DONATION ERROR: Recipe has no creator"
+            System.out.println(
+                    "No recipe creator. Processing platform donation."
             );
-
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Recipe creator not found"
+        } else {
+            System.out.println(
+                    "Recipe creator ID: " + creator.getId()
             );
         }
 
-        System.out.println("Creator ID: " + creator.getId());
+        // STEP 4: Validate Razorpay configuration
+        if (keyId == null || keyId.isBlank() ||
+                keySecret == null || keySecret.isBlank()) {
 
-        // STEP 3: Convert rupees to paise
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "Razorpay credentials are missing"
+            );
+        }
+
+        // STEP 5: Convert rupees to paise
         long amountPaise = amount
                 .movePointRight(2)
                 .longValueExact();
 
         System.out.println("Amount in paise: " + amountPaise);
 
-        // STEP 4: Check Razorpay configuration
-        boolean keyIdConfigured =
-                keyId != null && !keyId.isBlank();
+        // STEP 6: Create Razorpay order
+        RazorpayClient client =
+                new RazorpayClient(keyId, keySecret);
 
-        boolean secretConfigured =
-                keySecret != null && !keySecret.isBlank();
+        JSONObject options = new JSONObject();
 
-        System.out.println(
-                "Razorpay Key ID configured: " + keyIdConfigured
-        );
+        options.put("amount", amountPaise);
+        options.put("currency", "INR");
+        options.put("receipt", UUID.randomUUID().toString());
 
-        System.out.println(
-                "Razorpay Secret configured: " + secretConfigured
-        );
-
-        if (!keyIdConfigured || !secretConfigured) {
-
-            System.err.println(
-                    "DONATION ERROR: Razorpay credentials missing"
-            );
-
-            throw new ResponseStatusException(
-                    HttpStatus.SERVICE_UNAVAILABLE,
-                    "Payment service is not configured"
-            );
-        }
-
-        // STEP 5: Create Razorpay order
-        String orderId;
+        Order order;
 
         try {
-
-            System.out.println("Creating Razorpay order...");
-
-            RazorpayClient client =
-                    new RazorpayClient(keyId, keySecret);
-
-            JSONObject options = new JSONObject();
-
-            options.put("amount", amountPaise);
-            options.put("currency", "INR");
-            options.put(
-                    "receipt",
-                    UUID.randomUUID().toString()
-            );
-
-            Order order = client.orders.create(options);
-
-            orderId = order.get("id");
+            order = client.orders.create(options);
 
             System.out.println(
                     "Razorpay order created successfully"
@@ -177,28 +144,27 @@ public class DonationService {
         } catch (RazorpayException e) {
 
             System.err.println(
-                    "RAZORPAY ERROR: " + e.getMessage()
+                    "Razorpay order creation failed: " + e.getMessage()
             );
 
             throw e;
         }
 
-        // STEP 6: Save donation in PostgreSQL
+        String orderId = order.get("id");
+
+        // STEP 7: Save donation
+        Donation donation = new Donation();
+
+        donation.setDonorName(request.donorName().trim());
+        donation.setAmountPaise(amountPaise);
+        donation.setRazorpayOrderId(orderId);
+        donation.setStatus("CREATED");
+        donation.setRecipe(recipe);
+
+        // May be null for a platform donation
+        donation.setRecipientUser(creator);
+
         try {
-
-            Donation donation = new Donation();
-
-            donation.setDonorName(
-                    request.donorName().trim()
-            );
-
-            donation.setAmountPaise(amountPaise);
-            donation.setRazorpayOrderId(orderId);
-            donation.setStatus("CREATED");
-
-            donation.setRecipe(recipe);
-            donation.setRecipientUser(creator);
-
             repository.save(donation);
 
             System.out.println(
@@ -208,8 +174,7 @@ public class DonationService {
         } catch (Exception e) {
 
             System.err.println(
-                    "DATABASE ERROR while saving donation: "
-                            + e.getMessage()
+                    "DATABASE ERROR: " + e.getMessage()
             );
 
             throw e;
@@ -233,10 +198,14 @@ public class DonationService {
 
         System.out.println("========== PAYMENT VERIFICATION ==========");
 
+        // STEP 1: Validate request
         if (request == null ||
                 request.razorpayOrderId() == null ||
+                request.razorpayOrderId().isBlank() ||
                 request.razorpayPaymentId() == null ||
-                request.razorpaySignature() == null) {
+                request.razorpayPaymentId().isBlank() ||
+                request.razorpaySignature() == null ||
+                request.razorpaySignature().isBlank()) {
 
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
@@ -244,7 +213,7 @@ public class DonationService {
             );
         }
 
-        // STEP 1: Find donation
+        // STEP 2: Find donation
         Donation donation = repository
                 .findByRazorpayOrderId(
                         request.razorpayOrderId()
@@ -256,11 +225,11 @@ public class DonationService {
                         )
                 );
 
-        // STEP 2: Prevent duplicate processing
+        // STEP 3: Prevent duplicate processing
         if ("PAID".equals(donation.getStatus())) {
 
-            if (request.razorpayPaymentId()
-                    .equals(donation.getRazorpayPaymentId())) {
+            if (request.razorpayPaymentId().equals(
+                    donation.getRazorpayPaymentId())) {
 
                 return Map.of("status", "PAID");
             }
@@ -271,7 +240,7 @@ public class DonationService {
             );
         }
 
-        // STEP 3: Verify Razorpay signature
+        // STEP 4: Verify Razorpay signature
         JSONObject verification = new JSONObject();
 
         verification.put(
@@ -295,20 +264,13 @@ public class DonationService {
         );
 
         if (!valid) {
-
-            System.err.println(
-                    "PAYMENT ERROR: Invalid Razorpay signature"
-            );
-
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
                     "Invalid payment signature"
             );
         }
 
-        System.out.println("Payment signature verified");
-
-        // STEP 4: Fetch payment details
+        // STEP 5: Fetch payment from Razorpay
         RazorpayClient client =
                 new RazorpayClient(keyId, keySecret);
 
@@ -316,29 +278,17 @@ public class DonationService {
                 request.razorpayPaymentId()
         );
 
-        String paymentOrderId =
-                payment.get("order_id");
+        String paymentOrderId = payment.get("order_id");
+        String paymentStatus = payment.get("status");
+        String currency = payment.get("currency");
+        Number paidAmount = payment.get("amount");
 
-        String paymentStatus =
-                payment.get("status");
-
-        String currency =
-                payment.get("currency");
-
-        Number paidAmount =
-                payment.get("amount");
-
-        // STEP 5: Validate payment details
-        if (!donation.getRazorpayOrderId()
-                .equals(paymentOrderId) ||
+        // STEP 6: Validate payment details
+        if (!donation.getRazorpayOrderId().equals(paymentOrderId) ||
                 !"INR".equals(currency) ||
                 paidAmount == null ||
                 paidAmount.longValue() !=
                         donation.getAmountPaise()) {
-
-            System.err.println(
-                    "PAYMENT ERROR: Payment details mismatch"
-            );
 
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
@@ -346,44 +296,53 @@ public class DonationService {
             );
         }
 
+        // STEP 7: Check payment capture
         if (!"captured".equals(paymentStatus)) {
 
             System.out.println(
-                    "Payment is not captured yet"
+                    "Payment not captured. Status: " + paymentStatus
             );
 
             return Map.of("status", "PENDING");
         }
 
-        // STEP 6: Mark donation as PAID
+        // STEP 8: Save successful payment
         donation.setRazorpayPaymentId(
                 request.razorpayPaymentId()
         );
 
         donation.setStatus("PAID");
 
-        Donation savedDonation =
-                repository.save(donation);
+        Donation savedDonation = repository.save(donation);
 
         System.out.println(
-                "Donation payment saved successfully"
+                "Donation marked as PAID successfully"
         );
 
-        // STEP 7: Send email notification
+        // STEP 9: Email is optional
         try {
 
-            emailService.sendDonationReceivedEmail(
-                    savedDonation
-            );
+            if (savedDonation.getRecipientUser() != null) {
 
-            System.out.println(
-                    "Donation notification email sent"
-            );
+                emailService.sendDonationReceivedEmail(
+                        savedDonation
+                );
+
+                System.out.println(
+                        "Donation notification email sent"
+                );
+
+            } else {
+
+                System.out.println(
+                        "Platform donation: creator email skipped"
+                );
+            }
 
         } catch (Exception e) {
 
             System.err.println(
-                    "Payment succeeded but email failed: "
+                    "Payment verified, but email failed: "
                             + e.getMessage()
             );
         }
