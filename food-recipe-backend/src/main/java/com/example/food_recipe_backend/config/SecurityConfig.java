@@ -45,7 +45,9 @@ public class SecurityConfig {
             "http://localhost:5174",
             frontendUrl.replaceAll("/+$", "")
         ));
-
+        config.setAllowedOriginPatterns(List.of(
+    "https://food-recipe-hub1-*.vercel.app"
+));
         config.setAllowedMethods(List.of(
             "GET",
             "POST",
