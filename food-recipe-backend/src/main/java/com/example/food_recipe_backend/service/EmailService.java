@@ -20,93 +20,144 @@ public class EmailService {
 
     public EmailService(
             JavaMailSender mailSender,
-            @Value("${recipehub.mail.from}")
-            String fromEmail) {
+            @Value("${recipehub.mail.from}") String fromEmail) {
 
         this.mailSender = mailSender;
         this.fromEmail = fromEmail;
     }
 
-    public void sendDonationReceivedEmail(
-            Donation donation) {
+    public void sendDonationReceivedEmail(Donation donation) {
 
-        User creator = donation.getRecipientUser();
+        // STEP 1: Get donation details
         Recipe recipe = donation.getRecipe();
-
-        if (creator == null ||
-            creator.getEmail() == null ||
-            creator.getEmail().isBlank()) {
-
-            System.out.println(
-                "Donation email skipped: " +
-                "creator email unavailable"
-            );
-            return;
-        }
-
-        String creatorName =
-            creator.getName() == null ||
-            creator.getName().isBlank()
-                ? "Recipe Creator"
-                : creator.getName();
+        User creator = donation.getRecipientUser();
 
         String recipeName =
-            recipe == null
-                ? "your recipe"
-                : recipe.getName();
+                recipe != null && recipe.getName() != null
+                        ? recipe.getName()
+                        : "RecipeHub Recipe";
 
-        BigDecimal amount = BigDecimal
-            .valueOf(donation.getAmountPaise(), 2);
+        String donorName =
+                donation.getDonorName() != null
+                        ? donation.getDonorName()
+                        : "Anonymous";
 
+        BigDecimal amount = BigDecimal.valueOf(
+                donation.getAmountPaise(), 2
+        );
+
+        // STEP 2: Prepare payment notification
         String subject =
-            "RecipeHub - You Received a Donation!";
+                "RecipeHub - Donation Payment Successful!";
 
         String body =
-            "Hello " + creatorName + ",\n\n" +
+                "Hello RecipeHub Team,\n\n" +
 
-            "Great news! Someone has supported " +
-            "your recipe on RecipeHub.\n\n" +
+                "A donation payment has been successfully " +
+                "received on RecipeHub.\n\n" +
 
-            "DONATION DETAILS\n" +
-            "-----------------------------\n" +
+                "PAYMENT DETAILS\n" +
+                "----------------------------------\n" +
 
-            "Recipe: " + recipeName + "\n" +
+                "Recipe Name: " + recipeName + "\n" +
 
-            "Donor: " +
-            donation.getDonorName() + "\n" +
+                "Donor Name: " + donorName + "\n" +
 
-            "Amount: Rs. " +
-            amount.toPlainString() + "\n" +
+                "Amount: Rs. " +
+                amount.toPlainString() + "\n" +
 
-            "Payment Status: PAID\n\n" +
+                "Payment Status: PAID\n\n" +
 
-            "Thank you for sharing your " +
-            "delicious recipes with the " +
-            "RecipeHub community!\n\n" +
+                "Razorpay Order ID: " +
+                donation.getRazorpayOrderId() + "\n" +
 
-            "Keep cooking and inspiring!\n\n" +
+                "Razorpay Payment ID: " +
+                donation.getRazorpayPaymentId() + "\n\n" +
 
-            "Best regards,\n" +
-            "RecipeHub Team\n\n" +
+                "The donation has been processed through " +
+                "RecipeHub's Razorpay merchant account.\n\n" +
 
-            "Note: Donations are processed " +
-            "through RecipeHub's Razorpay " +
-            "merchant account.";
+                "Thank you!\n\n" +
 
-        SimpleMailMessage message =
-            new SimpleMailMessage();
+                "Best Regards,\n" +
+                "RecipeHub Team";
+
+        // STEP 3: Send notification to RecipeHub Gmail
+        SimpleMailMessage message = new SimpleMailMessage();
 
         message.setFrom(fromEmail);
-        message.setTo(creator.getEmail());
+        message.setTo(fromEmail);
         message.setSubject(subject);
         message.setText(body);
 
         mailSender.send(message);
 
         System.out.println(
-            "Donation notification email sent " +
-            "successfully"
+                "Payment success notification sent to: " +
+                fromEmail
         );
+
+        // STEP 4: Notify recipe creator if available
+        if (creator != null &&
+                creator.getEmail() != null &&
+                !creator.getEmail().isBlank() &&
+                !creator.getEmail().equalsIgnoreCase(fromEmail)) {
+
+            try {
+
+                String creatorName =
+                        creator.getName() != null &&
+                        !creator.getName().isBlank()
+                                ? creator.getName()
+                                : "Recipe Creator";
+
+                String creatorBody =
+                        "Hello " + creatorName + ",\n\n" +
+
+                        "Someone has supported your recipe " +
+                        "on RecipeHub!\n\n" +
+
+                        "Recipe: " + recipeName + "\n" +
+
+                        "Donor: " + donorName + "\n" +
+
+                        "Amount: Rs. " +
+                        amount.toPlainString() + "\n" +
+
+                        "Payment Status: PAID\n\n" +
+
+                        "Note: Donations are processed " +
+                        "through RecipeHub's Razorpay " +
+                        "merchant account.\n\n" +
+
+                        "Thank you for sharing your recipes!\n\n" +
+
+                        "Best Regards,\n" +
+                        "RecipeHub Team";
+
+                SimpleMailMessage creatorMessage =
+                        new SimpleMailMessage();
+
+                creatorMessage.setFrom(fromEmail);
+                creatorMessage.setTo(creator.getEmail());
+                creatorMessage.setSubject(
+                        "RecipeHub - Your Recipe Received a Donation!"
+                );
+                creatorMessage.setText(creatorBody);
+
+                mailSender.send(creatorMessage);
+
+                System.out.println(
+                        "Creator donation notification sent successfully"
+                );
+
+            } catch (Exception e) {
+
+                System.err.println(
+                        "Creator email notification failed: " +
+                        e.getMessage()
+                );
+            }
+        }
     }
 }
-
